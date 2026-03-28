@@ -1,0 +1,8 @@
+{
+  "atomgit": {
+    "token": "$ATOMGIT_TOKEN",
+    "owner": "your-org",
+    "repo": "your-repo",
+    "baseUrl": "https://api.atomgit.com"
+  }
+}
