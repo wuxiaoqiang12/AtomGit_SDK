@@ -28,5 +28,5 @@ IB_Robot project.
 - Unit-test suite covering api catalog, client retry, comment services,
   cross-repo context, diff position, issue label validation, repair service.
 
-[Unreleased]: https://gitcode.com/BreezeWu/AtomGit_SDK/compare/v0.1.0...master
-[0.1.0]: https://gitcode.com/BreezeWu/AtomGit_SDK/releases/tag/v0.1.0
+[Unreleased]: https://github.com/wuxiaoqiang12/AtomGit_SDK/compare/v0.1.0...master
+[0.1.0]: https://github.com/wuxiaoqiang12/AtomGit_SDK/releases/tag/v0.1.0

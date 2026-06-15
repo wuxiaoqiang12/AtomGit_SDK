@@ -53,10 +53,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://gitcode.com/BreezeWu/AtomGit_SDK"
-Repository = "https://gitcode.com/BreezeWu/AtomGit_SDK"
-Issues = "https://gitcode.com/BreezeWu/AtomGit_SDK/issues"
-Changelog = "https://gitcode.com/BreezeWu/AtomGit_SDK/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/wuxiaoqiang12/AtomGit_SDK"
+Repository = "https://github.com/wuxiaoqiang12/AtomGit_SDK"
+Issues = "https://github.com/wuxiaoqiang12/AtomGit_SDK/issues"
+Changelog = "https://github.com/wuxiaoqiang12/AtomGit_SDK/blob/master/CHANGELOG.md"
+GitCode = "https://gitcode.com/BreezeWu/AtomGit_SDK"
 
 [tool.setuptools.packages.find]
 where = ["src"]
