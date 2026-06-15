@@ -2,7 +2,6 @@
 Custom exceptions for AtomGit SDK
 """
 
-from typing import Optional
 
 
 class AtomGitSDKError(Exception):
@@ -17,8 +16,8 @@ class AtomGitAPIError(AtomGitSDKError):
     def __init__(
         self,
         message: str,
-        status_code: Optional[int] = None,
-        response_body: Optional[str] = None,
+        status_code: int | None = None,
+        response_body: str | None = None,
     ):
         self.message = message
         self.status_code = status_code
@@ -45,7 +44,7 @@ class ConfigurationError(AtomGitSDKError):
 class DiffParseError(AtomGitSDKError):
     """Exception raised for diff parsing errors"""
 
-    def __init__(self, message: str, patch_content: Optional[str] = None):
+    def __init__(self, message: str, patch_content: str | None = None):
         self.message = message
         self.patch_content = patch_content
         super().__init__(self.message)
@@ -54,10 +53,47 @@ class DiffParseError(AtomGitSDKError):
         return f"Diff Parse Error: {self.message}"
 
 
+class RateLimitError(AtomGitAPIError):
+    """Exception raised when the AtomGit API rate limit is exhausted.
+
+    Carries the ``x-ratelimit-*`` response headers described in the official
+    API docs so callers can decide whether to back off or abort.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        response_body: str | None = None,
+        limit: int | None = None,
+        remaining: int | None = None,
+        used: int | None = None,
+        reset: int | None = None,
+    ):
+        self.limit = limit
+        self.remaining = remaining
+        self.used = used
+        self.reset = reset
+        super().__init__(message, status_code=status_code, response_body=response_body)
+
+    def __str__(self):
+        base = super().__str__()
+        details = []
+        if self.remaining is not None:
+            details.append(f"remaining={self.remaining}")
+        if self.limit is not None:
+            details.append(f"limit={self.limit}")
+        if self.reset is not None:
+            details.append(f"reset={self.reset}")
+        if details:
+            return f"{base} ({', '.join(details)})"
+        return base
+
+
 class URLError(AtomGitSDKError):
     """Exception raised for URL parsing errors"""
 
-    def __init__(self, message: str, url: Optional[str] = None):
+    def __init__(self, message: str, url: str | None = None):
         self.message = message
         self.url = url
         super().__init__(self.message)

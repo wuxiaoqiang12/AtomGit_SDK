@@ -15,6 +15,7 @@ from atomgit_sdk.exceptions import (
     AtomGitSDKError,
     ConfigurationError,
     DiffParseError,
+    RateLimitError,
     URLError,
 )
 from atomgit_sdk.models import ArchitectureIssue, BaseIssue, CodeIssue, FixResult
@@ -42,5 +43,6 @@ __all__ = [
     "AtomGitAPIError",
     "ConfigurationError",
     "DiffParseError",
+    "RateLimitError",
     "URLError",
 ]

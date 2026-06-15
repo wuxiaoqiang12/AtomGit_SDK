@@ -67,7 +67,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-collect_ignore = ["test_sdk_core.py"]
 
 [tool.ruff]
 line-length = 120

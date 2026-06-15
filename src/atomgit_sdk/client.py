@@ -12,13 +12,23 @@ import requests
 
 from atomgit_sdk.api_catalog import DEFAULT_API_CATALOG, APIEndpoint
 from atomgit_sdk.config import AtomGitConfig
-from atomgit_sdk.exceptions import AtomGitAPIError
+from atomgit_sdk.exceptions import AtomGitAPIError, RateLimitError
 
 
 class AtomGitClient:
     """AtomGit API Client"""
 
-    def __init__(self, config: AtomGitConfig, user_agent: str = "AtomGit-SDK/1.0"):
+    def __init__(self, config: AtomGitConfig, user_agent: str = "AtomGit-SDK/1.0", api_version: str = "2023-02-21"):
+        """Create an AtomGit API client.
+
+        Args:
+            config: SDK configuration holding token/owner/repo/base_url.
+            user_agent: User-Agent header value.
+            api_version: ``X-Api-Version`` header value mandated by the official
+                API docs (default ``2023-02-21``). Omitting it makes the server
+                fall back to the same default, but we send it explicitly for
+                forward compatibility.
+        """
         self.config = config
         self.session = requests.Session()
         self.session.headers.update(
@@ -26,8 +36,32 @@ class AtomGitClient:
                 "Authorization": f"Bearer {config.token}",
                 "Content-Type": "application/json",
                 "User-Agent": user_agent,
+                "X-Api-Version": api_version,
             }
         )
+
+    @staticmethod
+    def _parse_ratelimit(headers) -> dict:
+        """Extract ``x-ratelimit-*`` values from response headers (best effort)."""
+        result: dict = {}
+        for field, key in (
+            ("x-ratelimit-limit", "limit"),
+            ("x-ratelimit-remaining", "remaining"),
+            ("x-ratelimit-used", "used"),
+            ("x-ratelimit-reset", "reset"),
+        ):
+            raw = headers.get(field) if hasattr(headers, "get") else None
+            if raw is None:
+                # requests headers are case-insensitive, but be defensive
+                raw = headers.get(field.lower()) if hasattr(headers, "get") else None
+            if raw is None:
+                continue
+            try:
+                result[key] = int(raw)
+            except (TypeError, ValueError):
+                result[key] = raw
+        return result
+
 
     @staticmethod
     def _is_safe_to_retry(method: str) -> bool:
@@ -63,6 +97,17 @@ class AtomGitClient:
         for attempt in range(retry_count):
             try:
                 response = self.session.request(method=method, url=url, json=body, params=params, timeout=30)
+
+                # Detect rate-limiting per official docs: a 403/429 response
+                # with x-ratelimit-remaining == 0 means the quota is exhausted.
+                ratelimit = self._parse_ratelimit(response.headers)
+                if response.status_code in (403, 429) and ratelimit.get("remaining") == 0:
+                    raise RateLimitError(
+                        "AtomGit API rate limit exceeded",
+                        status_code=response.status_code,
+                        response_body=response.text,
+                        **ratelimit,
+                    )
 
                 if response.status_code in (200, 201, 202):
                     try:
@@ -543,3 +588,191 @@ class AtomGitClient:
     def get_issue_url(self, issue_number: int) -> str:
         """Get issue URL"""
         return f"https://atomgit.com/{self.config.owner}/{self.config.repo}/issues/{issue_number}"
+
+    # ------------------------------------------------------------------
+    # User account
+    # ------------------------------------------------------------------
+    def get_user(self, username: str) -> dict:
+        """Get a user by username."""
+        return self.request("GET", f"/api/v5/users/{url_quote(username, safe='')}")
+
+    def list_user_followers(self, username: str | None = None, per_page: int = 100) -> list[dict]:
+        """List followers of the authenticated user (or ``username``)."""
+        if username:
+            ep = f"/api/v5/users/{url_quote(username, safe='')}/followers"
+        else:
+            ep = "/api/v5/user/followers"
+        return self.request("GET", ep, params={"per_page": per_page})
+
+    def list_user_following(self, username: str | None = None, per_page: int = 100) -> list[dict]:
+        """List users followed by the authenticated user (or ``username``)."""
+        if username:
+            ep = f"/api/v5/users/{url_quote(username, safe='')}/following"
+        else:
+            ep = "/api/v5/user/following"
+        return self.request("GET", ep, params={"per_page": per_page})
+
+    def follow_user(self, username: str) -> dict:
+        """Follow a user."""
+        return self.request("PUT", f"/api/v5/user/following/{url_quote(username, safe='')}")
+
+    def unfollow_user(self, username: str) -> dict:
+        """Unfollow a user."""
+        return self.request("DELETE", f"/api/v5/user/following/{url_quote(username, safe='')}")
+
+    def list_emails(self) -> list[dict]:
+        """List the authenticated user's emails."""
+        return self.request("GET", "/api/v5/user/emails")
+
+    def list_keys(self) -> list[dict]:
+        """List the authenticated user's public keys."""
+        return self.request("GET", "/api/v5/user/keys")
+
+    # ------------------------------------------------------------------
+    # Repository
+    # ------------------------------------------------------------------
+    def get_repository(self, owner: str | None = None, repo: str | None = None) -> dict:
+        """Get repository info. Defaults to the configured repo."""
+        if owner and repo:
+            path = f"/api/v5/repos/{url_quote(owner, safe='')}/{url_quote(repo, safe='')}"
+        else:
+            path = self._repo_path()
+        return self.request("GET", path)
+
+    def list_user_repos(self, per_page: int = 100) -> list[dict]:
+        """List repositories in the authenticated user's personal space."""
+        return self.request("GET", "/api/v5/user/repos", params={"per_page": per_page})
+
+    def list_org_repos(self, org: str, per_page: int = 100) -> list[dict]:
+        """List repositories under an organization."""
+        return self.request("GET", f"/api/v5/orgs/{url_quote(org, safe='')}/repos", params={"per_page": per_page})
+
+    # ------------------------------------------------------------------
+    # Branch
+    # ------------------------------------------------------------------
+    def list_branches(self, per_page: int = 100) -> list[dict]:
+        """List repository branches."""
+        return self.request("GET", f"{self._repo_path()}/branches", params={"per_page": per_page})
+
+    def get_branch(self, branch: str) -> dict:
+        """Get a single branch."""
+        return self.request("GET", f"{self._repo_path()}/branches/{url_quote(branch, safe='')}")
+
+    def create_branch(self, branch: str, ref: str) -> dict:
+        """Create a branch from ``ref``."""
+        return self.request("POST", f"{self._repo_path()}/branches", body={"branch": branch, "ref": ref})
+
+    def delete_branch(self, branch: str) -> dict:
+        """Delete a branch."""
+        return self.request("DELETE", f"{self._repo_path()}/branches/{url_quote(branch, safe='')}")
+
+    # ------------------------------------------------------------------
+    # Tag
+    # ------------------------------------------------------------------
+    def list_tags(self, per_page: int = 100) -> list[dict]:
+        """List repository tags."""
+        return self.request("GET", f"{self._repo_path()}/tags", params={"per_page": per_page})
+
+    # ------------------------------------------------------------------
+    # Commit
+    # ------------------------------------------------------------------
+    def list_commits(self, sha: str | None = None, per_page: int = 100) -> list[dict]:
+        """List repository commits, optionally filtered by ``sha`` (branch/ref)."""
+        params: dict = {"per_page": per_page}
+        if sha:
+            params["sha"] = sha
+        return self.request("GET", f"{self._repo_path()}/commits", params=params)
+
+    def get_commit(self, sha: str) -> dict:
+        """Get a single commit."""
+        return self.request("GET", f"{self._repo_path()}/commits/{url_quote(sha, safe='')}")
+
+    def get_commit_diff(self, sha: str) -> dict:
+        """Get a commit diff."""
+        return self.request("GET", f"{self._repo_path()}/commits/{url_quote(sha, safe='')}/diff")
+
+    def compare_commits(self, base: str, head: str) -> dict:
+        """Compare two commits."""
+        ep = f"{self._repo_path()}/compare/{url_quote(base, safe='')}...{url_quote(head, safe='')}"
+        return self.request("GET", ep)
+
+    # ------------------------------------------------------------------
+    # Milestone
+    # ------------------------------------------------------------------
+    def list_milestones(self, state: str = "open", per_page: int = 100) -> list[dict]:
+        """List repository milestones."""
+        return self.request("GET", f"{self._repo_path()}/milestones", params={"state": state, "per_page": per_page})
+
+    def get_milestone(self, number: int) -> dict:
+        """Get a single milestone."""
+        return self.request("GET", f"{self._repo_path()}/milestones/{number}")
+
+    # ------------------------------------------------------------------
+    # Organization
+    # ------------------------------------------------------------------
+    def get_org(self, org: str) -> dict:
+        """Get an organization."""
+        return self.request("GET", f"/api/v5/orgs/{url_quote(org, safe='')}")
+
+    def create_org(self, name: str, org: str, description: str = "") -> dict:
+        """Create an organization."""
+        return self.request("POST", "/api/v5/orgs", body={"name": name, "org": org, "description": description})
+
+    def update_org(self, org: str, description: str | None = None) -> dict:
+        """Update an organization."""
+        body: dict = {}
+        if description is not None:
+            body["description"] = description
+        return self.request("PATCH", f"/api/v5/orgs/{url_quote(org, safe='')}", body=body)
+
+    def list_org_members(self, org: str, per_page: int = 100) -> list[dict]:
+        """List members of an organization."""
+        return self.request("GET", f"/api/v5/orgs/{url_quote(org, safe='')}/members", params={"per_page": per_page})
+
+    def check_org_member(self, org: str, username: str) -> dict:
+        """Check if a user is a member of an organization."""
+        ep = f"/api/v5/orgs/{url_quote(org, safe='')}/members/{url_quote(username, safe='')}"
+        return self.request("GET", ep)
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+    def search_repositories(self, q: str, page: int = 1, per_page: int = 20) -> dict:
+        """Search repositories."""
+        return self.request("GET", "/api/v5/search/repositories", params={"q": q, "page": page, "per_page": per_page})
+
+    def search_issues(self, q: str, page: int = 1, per_page: int = 20) -> dict:
+        """Search issues."""
+        return self.request("GET", "/api/v5/search/issues", params={"q": q, "page": page, "per_page": per_page})
+
+    def search_users(self, q: str, page: int = 1, per_page: int = 20) -> dict:
+        """Search users."""
+        return self.request("GET", "/api/v5/search/users", params={"q": q, "page": page, "per_page": per_page})
+
+    # ------------------------------------------------------------------
+    # Check runs (AtomGit automation checks – inferred path tier; confirm on first use)
+    # ------------------------------------------------------------------
+    def create_check_run(self, body: dict) -> dict:
+        """Create a check run. ``body`` follows the AtomGit check-run schema;
+        see https://docs.atomgit.com/openAPI/api_versioned/create-check-run for fields."""
+        return self.request("POST", f"{self._repo_path()}/check-runs", body=body)
+
+    def get_check_run(self, check_run_id: str | int) -> dict:
+        """Get a check run."""
+        return self.request("GET", f"{self._repo_path()}/check-runs/{check_run_id}")
+
+    def update_check_run(self, check_run_id: str | int, body: dict) -> dict:
+        """Update a check run."""
+        return self.request("PATCH", f"{self._repo_path()}/check-runs/{check_run_id}", body=body)
+
+    # ------------------------------------------------------------------
+    # Commit statuses
+    # ------------------------------------------------------------------
+    def create_commit_status(self, sha: str, state: str, **kwargs: object) -> dict:
+        """Create a commit status for ``sha`` (state: success/failure/pending/error)."""
+        payload = {"state": state, **kwargs}
+        return self.request("POST", f"{self._repo_path()}/statuses/{url_quote(sha, safe='')}", body=payload)
+
+    def get_combined_status(self, ref: str) -> dict:
+        """Get the combined commit status for ``ref``."""
+        return self.request("GET", f"{self._repo_path()}/commits/{url_quote(ref, safe='')}/status")
