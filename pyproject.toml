@@ -5,9 +5,40 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "atomgit-sdk"
 version = "0.1.0"
-description = "Unified AtomGit/GitCode API SDK"
+description = "Unified Python SDK for the AtomGit/GitCode API: PR management, issues, code review and discussion repair workflows."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "XiaoqiangWu", email = "wuxiaoqiang.rtos@huawei.com" },
+]
+maintainers = [
+    { name = "XiaoqiangWu", email = "wuxiaoqiang.rtos@huawei.com" },
+]
+keywords = [
+    "atomgit",
+    "gitcode",
+    "api",
+    "sdk",
+    "pull-request",
+    "code-review",
+    "automation",
+    "issue-tracking",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Version Control :: Git",
+]
 dependencies = [
     "requests>=2.28.0",
     "pydantic>=2.0.0",
@@ -17,10 +48,15 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
 ]
-llm = [
-    "anthropic>=0.30.0",
-]
+
+[project.urls]
+Homepage = "https://gitcode.com/BreezeWu/AtomGit_SDK"
+Repository = "https://gitcode.com/BreezeWu/AtomGit_SDK"
+Issues = "https://gitcode.com/BreezeWu/AtomGit_SDK/issues"
+Changelog = "https://gitcode.com/BreezeWu/AtomGit_SDK/blob/master/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -31,3 +67,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 collect_ignore = ["test_sdk_core.py"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008", "SIM108"]
