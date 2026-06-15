@@ -11,11 +11,22 @@ Confidence tiers for the built-in paths:
 * **standard** – Gitea/GitHub-compatible REST paths for core resources
   (user/org/repo/branch/tag/commit/issue/label/milestone/pull) which AtomGit
   follows; corroborated by the example URLs shown in the docs.
-* **inferred** – paths for AtomGit-specific surfaces (check-runs, discuss,
-  security, enterprise, remind, private, apps) derived from the documented
-  slug semantics.  These are best-effort and should be confirmed against the
-  linked doc page on first use.
+* **inferred** – paths for AtomGit-specific surfaces derived from documented
+  slug semantics.  These were smoke-tested against the live API on
+  2026-06-15; see SMOKE_RESULTS below for the verified/unverified split.
 """
+
+# Smoke-test results (2026-06-15, openEuler/IB_Robot, ATOMGIT_TOKEN):
+#   ✓ verified   — discuss GET surface (list / categories / get-by-id) → 200/400,
+#                  so those entries are treated as verified despite the tier name.
+#   ~ partial    — discuss write (create/update/delete) → HTTP 405: the
+#                  ``/discuss`` route exists but rejects POST/PATCH/DELETE; the
+#                  real write path is a sub-route that is not yet pinned down.
+#   ✗ unverified — check-runs / security / enterprise / remind / private / apps
+#                  returned 404 on every probed path variant. The doc pages do
+#                  not expose path templates, so these entries keep a best-guess
+#                  path only for discoverability — always consult the endpoint's
+#                  ``doc_url`` before calling ``call_api``.
 
 from __future__ import annotations
 
@@ -30,6 +41,7 @@ from atomgit_sdk.exceptions import ConfigurationError
 API_DOCS_BASE_URL = "https://docs.atomgit.com/openAPI/api_versioned"
 API_DOCS_SITEMAP_URL = "https://docs.atomgit.com/sitemap.xml"
 API_HOST = "api.atomgit.com"
+SMOKE_TESTED_AT = "2026-06-15"
 _PATH_PARAM_RE = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)")
 
 # Module index pages on the docs site – excluded when harvesting endpoint slugs.
@@ -356,6 +368,9 @@ _LABEL_ENTRIES: tuple[tuple[str, str, str, str], ...] = (
     ("delete-issue-labels", "DELETE", "/api/v5/repos/:owner/:repo/issues/:number/labels", "删除Issue标签"),
 )
 
+# discuss: GET surface (list/categories/get) verified by smoke test → 200/400.
+# Write ops (create/update/delete) returned 405 on /discuss — the real write
+# path is a sub-route that is not yet pinned down; keep these for discoverability.
 _DISCUSS_ENTRIES: tuple[tuple[str, str, str, str], ...] = (
     ("create-repo-discuss", "POST", "/api/v5/repos/:owner/:repo/discuss", "创建仓库讨论"),
     ("get-repo-discuss", "GET", "/api/v5/repos/:owner/:repo/discuss/:id", "获取仓库讨论"),
