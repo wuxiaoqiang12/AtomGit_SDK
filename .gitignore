@@ -10,6 +10,7 @@ build/
 .swarm/
 venv/
 .venv/
+.venv-publish/
 tmp/
 *.swp
 *.swo

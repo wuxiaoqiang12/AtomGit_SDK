@@ -212,14 +212,50 @@ PR 操作服务。
 pytest tests/
 ```
 
-## 开发
+## 开发与发布
 
-构建发行包：
+### 本地开发
 
 ```bash
-python -m build
-twine check dist/*
+pip install -e ".[dev]"
+pytest tests/
 ```
+
+### 发布到 PyPI
+
+用 `scripts/publish.sh` 在**隔离的干净 venv** 里构建和上传。请勿直接在项目
+venv（尤其是带 `--system-site-packages` 或被 `PYTHONPATH` 污染的环境）里跑
+`twine`，否则可能加载到系统旧版 `requests_toolbelt` 而崩溃：
+
+```
+ImportError: cannot import name 'appengine' from 'urllib3.contrib'
+```
+
+脚本会自动创建隔离 venv 并在每次调用时清除 `PYTHONPATH`：
+
+```bash
+scripts/publish.sh check       # 仅构建 + twine check，不上传
+scripts/publish.sh testpypi    # 上传到 TestPyPI 验证安装
+scripts/publish.sh pypi        # 正式上传到 PyPI（不可逆！）
+```
+
+凭据从 `~/.pypirc` 读取，需配置：
+
+```ini
+[distutils]
+index-servers = pypi testpypi
+
+[pypi]
+username = __token__
+password = pypi-<正式PyPI_token>
+
+[testpypi]
+username = __token__
+password = pypi-<TestPyPI_token>
+```
+
+> **首次发布务必先 `testpypi` 验证**：PyPI 版本一经上传不可删除、不可覆盖同名。
+> 发新版本：改 `pyproject.toml` 的 `version` + 补 `CHANGELOG.md`，再执行 `scripts/publish.sh pypi`。
 
 ## 贡献
 
