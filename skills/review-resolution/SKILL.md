@@ -1,0 +1,170 @@
+---
+name: atomgit-review-resolution
+description: "AtomGit 评审意见处理示例。当用户需要\"修复PR评审意见\"、\"处理review comments\"、\"apply fixes\"、\"reply to review\"、\"回复评论\"、\"resolve review discussions\"、\"闭环评审流程\"或基于未解决评论继续推进 PR 时使用。只要目标是某个 AtomGit 仓库的 review comments / discussions，默认优先使用本 skill。"
+license: MIT
+---
+
+# AtomGit Review Resolution
+
+响应别人对你代码的审查意见，自动修复并回复评论。
+
+只要用户提到 review comments / unresolved comments / 回复评论 / 修复评审意见，默认视为 AtomGit review follow-up 流程并优先使用本 skill。
+
+本 skill 支持对 **任意 AtomGit 仓库的 PR 评论** 做通用跟进：
+
+- `--owner` / `--repo`: 显式覆盖 `config.json` 中的仓库
+- `--url`: 从 AtomGit / GitCode 的 PR 链接自动解析 `owner/repo/pr_number`
+
+## 环境准备
+
+安装 atomgit-sdk（已发布到 PyPI）：
+
+```bash
+pip install atomgit-sdk
+```
+
+并配置 `ATOMGIT_TOKEN` 环境变量，以及 `config.json`（参考 [`examples/config.example.json`](../../examples/config.example.json)）。
+
+## 文件读取说明
+
+**输出文件位于 `./tmp` 目录**，AI Agent 应使用 shell 命令读取：
+
+```bash
+# 读取未解决的评论
+cat ./tmp/{repo}_pr_123_unresolved_comments.json
+
+# 读取修复结果（提交前确认）
+cat ./tmp/{repo}_pr_123_fix_results.json
+```
+
+## 快速使用
+
+```bash
+# 步骤1: 获取未解决的评论
+python3 review_resolution.py --pr 123
+
+# 直接从链接解析目标 PR
+python3 review_resolution.py --url https://atomgit.com/some-org/some-repo/pull/123
+
+# 步骤2: 你分析评论并生成修复方案
+
+# 步骤3: 人类确认修复方案
+
+# 步骤4: 应用修复方案（必须指定 --ai-model）
+python3 review_resolution.py --pr 123 --apply-fixes ./tmp/{repo}_pr_123_fix_results.json --ai-model claude-sonnet-4
+```
+
+### 回复某一条 review 意见
+
+当用户明确要求“只回复某条评论 / 针对 comment_id 回复 / 这条意见单独回一下”时，不需要生成 fixes.json，直接使用单评论回复模式：
+
+```bash
+python3 review_resolution.py --pr 123 --reply-comment 456 --reply-body "已确认，这里按建议补充边界检查。" --ai-model claude-sonnet-4
+
+# 回复内容较长时，从文件读取，避免 shell 转义导致 Markdown 损坏
+python3 review_resolution.py --pr 123 --reply-comment 456 --reply-file ./tmp/reply_456.md --ai-model claude-sonnet-4
+
+# 如需显式指定 discussion 下的嵌套回复，可写 threaded（默认就是 threaded）
+python3 review_resolution.py --pr 123 --reply-comment 456 --reply-file ./tmp/reply_456.md --reply-mode threaded --ai-model claude-sonnet-4
+
+# 只有在明确需要额外发一条页面可见评论时，才显式指定 visible
+python3 review_resolution.py --pr 123 --reply-comment 456 --reply-file ./tmp/reply_456.md --reply-mode visible --ai-model claude-sonnet-4
+```
+
+脚本默认使用 `--reply-mode threaded`：
+
+- 对已有 review discussion，直接在 **原 review 线程下追加详细回复**
+- 这样可以避免“线程下已有简短回复，同时又额外生成一条顶层/行内评论”的冗余展示
+
+只有在显式指定 `--reply-mode visible` 时，才会：
+
+- 对 PR 总评 / 普通评论，发送 **页面可见的 PR 顶层评论**
+- 对 DiffNote / 行内评论，发送 **页面可见的 inline comment**
+
+`visible` 适合需要额外补一条页面可见评论的场景；常规 review 跟进默认应使用 threaded。
+
+### 修改某条 review discussion 的解决状态
+
+```bash
+# 按评论 ID 自动查找 discussion_id 并标记已解决
+python3 review_resolution.py --pr 123 --resolve-comment 456 --resolved true --ai-model claude-sonnet-4
+
+# 已知 discussion_id 时直接操作
+python3 review_resolution.py --pr 123 --resolve-discussion abcdef --resolved false --ai-model claude-sonnet-4
+```
+
+脚本使用官方文档中的 `PUT /api/v5/repos/:owner/:repo/pulls/:number/comments/:discussion_id` 接口修改解决状态。
+
+**重要**:
+- 在步骤3，你必须将修复方案展示给人类确认后再提交
+- **步骤4必须指定 `--ai-model` 参数**，使用你的真实模型名称（如 `claude-sonnet-4`、`gpt-4`、`gemini-pro`）
+- 文件名格式：`./tmp/{repo}_pr_{number}_fix_results.json`
+
+## API 说明
+
+### 获取未解决评论
+
+```bash
+python3 review_resolution.py --pr 123
+```
+
+**输出**: `./tmp/{repo}_pr_{number}_unresolved_comments.json`
+
+补充说明：
+
+- 脚本会自动抓取 **所有分页评论**，不再受默认 20 条限制
+- 输出按 `discussion_id` 聚合线程，`comments[].thread_comments` 中可看到嵌套回复
+- 默认会过滤当前登录用户自己的评论和 bot 评论；可通过 `--include-self-comments` / `--include-bot-comments` 打开
+- AtomGit / GitCode 当前读取接口**不会稳定返回 resolved 状态**，因此输出文件会在 `metadata.resolved_state_note` 中说明这一点
+
+### 应用修复方案
+
+```bash
+python3 review_resolution.py --pr 123 --apply-fixes ./tmp/{repo}_pr_123_fix_results.json --ai-model claude-sonnet-4
+```
+
+## 修复类型
+
+1. **代码修复**: 提供具体的代码修改建议
+2. **回复说明**: 仅需要回复解释
+3. **回退文件**: 建议回退整个文件
+4. **删除行**: 建议删除特定行
+
+## 输入格式
+
+```json
+[
+  {
+    "comment_id": 12345,
+    "file_path": "src/main.py",
+    "line_number": 10,
+    "has_fix": true,
+    "fix_description": "修复说明",
+    "original_code": "old code",
+    "fixed_code": "new code",
+    "reason": "修复原因"
+  }
+]
+```
+
+## 参数补充
+
+- `--pr`: PR 编号（可由 `--url` 自动解析）
+- `--owner`: 目标仓库 owner（可选，覆盖 `config.json`）
+- `--repo`: 目标仓库 repo（可选，覆盖 `config.json`）
+- `--url`: PR 链接（可选，自动解析 `owner/repo/pr_number`）
+- `--reply-comment`: 回复指定 PR review 评论 ID
+- `--reply-body`: 直接传入回复正文
+- `--reply-file`: 从文件读取回复正文
+- `--reply-mode`: 回复模式，`threaded` 或 `visible`，默认 `threaded`
+- `--resolve-comment`: 按评论 ID 修改其 discussion 解决状态
+- `--resolve-discussion`: 按 discussion ID 修改解决状态
+- `--resolved`: 解决状态，`true` 或 `false`，默认 `true`
+
+## SDK / API 设计决策
+
+通过 `pip install atomgit-sdk` 安装的 SDK 作为唯一 AtomGit API 抽象层；skill 脚本只做工作流编排，不直接散落 HTTP 请求。原因：
+
+1. 单条 review 回复、解决状态、评论编辑/删除等能力会被多个 skill 复用，放在 SDK 中更稳定。
+2. 官方 API 文档目前主要提供 endpoint 标题、HTTP 方法和路径；SDK 已沉淀为 `APICatalog`，常用协作 API 提供 typed wrapper，长尾 API 可通过 `client.call_api(...)` 或 `APICatalog.from_docs()` 使用。
+3. 这样比每个 skill 脚本各自拼 curl 更简洁，也能统一认证、错误处理、重试和 URL 解析。

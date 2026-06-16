@@ -4,13 +4,29 @@
 
 统一的 AtomGit API 封装 SDK，可用于 AtomGit / GitCode 上的 PR、Issue、Review 与评论修复流程。
 
+## Skill 示例
+
+本仓库的 [`skills/`](skills/) 目录提供 **5 个基于 SDK 的协作自动化 skill 示例**，演示如何把 PR / Issue / Review 工作流编排成可复用的 Agent skill：
+
+| 示例 | 功能 | 用到的 SDK 能力 |
+|------|------|----------------|
+| [collaboration](skills/collaboration/SKILL.md) | 协作意图路由（识别请求并分流） | — |
+| [issue](skills/issue/SKILL.md) | Issue 创建 / 查询 / 更新 / 关闭 | `IssueService` |
+| [pr](skills/pr/SKILL.md) | PR 创建 / 上下文提取 / 描述同步 | `create_pull_request`、`get_pr_*` |
+| [pr-review](skills/pr-review/SKILL.md) | PR 代码审查（行内评论提交） | `calculate_diff_position`、`submit_batch_comments` |
+| [review-resolution](skills/review-resolution/SKILL.md) | 评审意见处理（回复 / 解决 / 修复） | `RepairService` |
+
+每个示例都支持 `--owner/--repo/--url` 指定任意 AtomGit 仓库，脚本只做工作流编排，HTTP 统一走 SDK。详见 [skills/README.md](skills/README.md)。
+
 ## 特性
 
 - **统一的 API 客户端**: 封装所有 AtomGit API 调用，自带 Bearer 鉴权与安全方法重试
-- **API 文档目录**: 内置常用协作 endpoint catalog，并支持从官方文档同步完整 endpoint 列表
-- **类型安全**: 使用 Pydantic 模型进行数据验证
-- **Diff 解析**: 准确的 Diff 行号映射算法
+- **API 合规**: 每个请求携带官方要求的 `X-Api-Version` 头；403/429 限流时抛 `RateLimitError`
+- **完整 API 覆盖**: 内置 catalog 覆盖官方文档全部 96 个 endpoint（17 模块），`from_docs()` 可从官方文档站同步
+- **20+ typed wrapper**: user / org / repo / branch / tag / commit / milestone / search / check-run / commit-status
 - **高级服务**: `PRService`、`IssueService`、`RepairService` 封装常用操作
+- **类型安全**: Pydantic 模型 + 完整异常体系
+- **Diff 解析**: 准确的 Diff 行号映射算法
 - **轻量依赖**: 仅依赖 `requests` 和 `pydantic`
 
 ## 安装
@@ -82,7 +98,7 @@ client.set_pr_discussion_resolved(123, "discussion-id", True)
 
 ### 调用官方 API catalog
 
-当前官方 API 文档大多只公开标题、HTTP 方法和路径。SDK 因此采用 “catalog + typed wrapper” 的方式：常用协作流程使用显式方法，长尾 API 通过 catalog 调用。
+官方 API 文档大多只公开标题、HTTP 方法和路径。SDK 采用 “catalog + typed wrapper” 的方式：常用协作流程使用显式方法，长尾 API 通过 catalog 调用。
 
 ```python
 from atomgit_sdk import APICatalog
@@ -96,7 +112,7 @@ comment = client.call_api(
     path_params={"owner": "your-org", "repo": "your-repo", "id": 456},
 )
 
-# 需要完整官方 endpoint 列表时，可从文档同步（2026-04 抽取到 247 个 API 页面）
+# 需要完整官方 endpoint 列表时，可从文档同步
 full_catalog = APICatalog.from_docs()
 ```
 
@@ -140,71 +156,41 @@ export ATOMGIT_TOKEN="your-personal-access-token"
 
 ```
 atomgit_sdk/
-├── src/
-│   └── atomgit_sdk/
-│       ├── __init__.py          # 导出常用类
-│       ├── api_catalog.py       # 官方 API 端点目录
-│       ├── config.py            # 配置管理
-│       ├── client.py            # API 客户端
-│       ├── models.py            # 数据模型
-│       ├── exceptions.py        # 自定义异常
-│       ├── utils/               # 工具函数
-│       │   ├── diff.py          # Diff 解析
-│       │   ├── url.py           # URL 解析
-│       │   └── content.py       # 内容处理
-│       └── services/            # 业务服务
-│           ├── pr_service.py    # PR 操作
-│           ├── issue_service.py # Issue 操作
-│           └── repair_service.py# 评审修复操作
-├── tests/                       # 单元测试
-└── examples/                    # 配置与用法示例
+├── src/atomgit_sdk/          # SDK 源码
+│   ├── __init__.py           # 导出常用类
+│   ├── api_catalog.py        # 官方 API 端点目录（96 endpoint）
+│   ├── client.py             # API 客户端 + typed wrapper
+│   ├── config.py             # 配置管理
+│   ├── models.py             # 数据模型
+│   ├── exceptions.py         # 自定义异常
+│   ├── utils/                # diff / url / content 工具
+│   └── services/             # PRService / IssueService / RepairService
+├── skills/                   # atomgit 协作 skill 示例（5 个）
+├── .agents/skills/           # 项目自身 skill（publish-sdk 等）
+├── scripts/                  # publish.sh 等工具脚本
+├── examples/                 # 配置与用法示例
+└── tests/                    # 单元测试
 ```
 
 ## API 参考
 
 ### AtomGitConfig
 
-配置管理类。
-
-**方法:**
-- `from_json(path: str)`: 从 JSON 文件加载配置
+配置管理类。**方法:** `from_json(path)` 从 JSON 文件加载配置。
 
 ### AtomGitClient
 
-API 客户端。
+API 客户端。除下列方法外，还提供 user / org / repo / branch / tag / commit / milestone / search / check-run / commit-status 等 20+ typed wrapper。
 
-**方法:**
-- `get_pull_request(pr_number: int)`: 获取 PR 详情
-- `get_pr_files(pr_number: int)`: 获取 PR 文件列表
-- `get_pr_files_json(pr_number: int)`: 获取 PR files.json 列表
-- `get_pr_commits(pr_number: int)`: 获取 PR 提交列表
-- `get_pr_comments(pr_number: int)`: 获取 PR 评论列表
-- `get_pr_comment(comment_id: int)`: 获取单条 PR 评论
-- `reply_to_pr_discussion(pr_number: int, discussion_id: str, body: str)`: 回复指定 review discussion
-- `set_pr_discussion_resolved(pr_number: int, discussion_id: str, resolved: bool)`: 修改 discussion 解决状态
-- `get_file_content(path: str, ref: str)`: 获取文件内容
-- `call_api(slug: str, path_params: dict, params: dict, body: dict)`: 调用 catalog 中的官方 API endpoint
+**PR 相关:** `get_pull_request`、`get_pr_files`、`get_pr_files_json`、`get_pr_commits`、`get_pr_comments`、`get_pr_comment`、`reply_to_pr_discussion`、`set_pr_discussion_resolved`、`get_file_content`、`call_api`
 
 ### PRService
 
-PR 操作服务。
-
-**方法:**
-- `get_full_pr_context(pr_number: int)`: 获取完整 PR 上下文
-- `submit_inline_comment(pr_number: int, comment: dict)`: 提交行内评论
-- `submit_batch_comments(pr_number: int, comments: list)`: 批量提交评论
-- `reply_to_pr_discussion(pr_number: int, discussion_id: str, body: str)`: 回复指定 review discussion
-- `set_pr_discussion_resolved(pr_number: int, discussion_id: str, resolved: bool)`: 修改 discussion 解决状态
+`get_full_pr_context`、`submit_inline_comment`、`submit_batch_comments`、`reply_to_pr_discussion`、`set_pr_discussion_resolved`
 
 ### RepairService
 
-评审意见处理服务。
-
-**方法:**
-- `get_unresolved_comments(pr_number: int)`: 获取未解决 review 评论
-- `reply_to_comment(pr_number: int, comment_id: int, reply_body: str)`: 按评论 ID 回复单条 review 意见
-- `resolve_comment(pr_number: int, comment_id: int, resolved: bool)`: 按评论 ID 修改所属 discussion 解决状态
-- `resolve_discussion(pr_number: int, discussion_id: str, resolved: bool)`: 按 discussion ID 修改解决状态
+`get_unresolved_comments`、`reply_to_comment`、`resolve_comment`、`resolve_discussion`
 
 ## 测试
 
@@ -212,60 +198,24 @@ PR 操作服务。
 pytest tests/
 ```
 
-## 开发与发布
+## 开发
 
-### 本地开发
+本地开发：
 
 ```bash
 pip install -e ".[dev]"
 pytest tests/
 ```
 
-### 发布到 PyPI
-
-用 `scripts/publish.sh` 在**隔离的干净 venv** 里构建和上传。请勿直接在项目
-venv（尤其是带 `--system-site-packages` 或被 `PYTHONPATH` 污染的环境）里跑
-`twine`，否则可能加载到系统旧版 `requests_toolbelt` 而崩溃：
-
-```
-ImportError: cannot import name 'appengine' from 'urllib3.contrib'
-```
-
-脚本会自动创建隔离 venv 并在每次调用时清除 `PYTHONPATH`：
-
-```bash
-scripts/publish.sh check       # 仅构建 + twine check，不上传
-scripts/publish.sh testpypi    # 上传到 TestPyPI 验证安装
-scripts/publish.sh pypi        # 正式上传到 PyPI（不可逆！）
-```
-
-凭据从 `~/.pypirc` 读取，需配置：
-
-```ini
-[distutils]
-index-servers = pypi testpypi
-
-[pypi]
-username = __token__
-password = pypi-<正式PyPI_token>
-
-[testpypi]
-username = __token__
-password = pypi-<TestPyPI_token>
-```
-
-> **首次发布务必先 `testpypi` 验证**：PyPI 版本一经上传不可删除、不可覆盖同名。
-> 发新版本：改 `pyproject.toml` 的 `version` + 补 `CHANGELOG.md`，再执行 `scripts/publish.sh pypi`。
+**发布到 PyPI** 见 [`.agents/skills/publish-sdk/SKILL.md`](.agents/skills/publish-sdk/SKILL.md)——它封装了隔离 venv 构建与上传流程，用 `scripts/publish.sh` 一键执行，规避宿主环境的 `requests_toolbelt`/`PYTHONPATH` 污染问题。
 
 ## 贡献
 
-欢迎提交 Issue 与 Pull Request。提交代码请签署 DCO（`git commit -s`）。
+欢迎提交 Issue 与 Pull Request。提交代码请签署 DCO（`git commit -s`）。也欢迎参考 [`skills/`](skills/) 的示例，基于 SDK 编排新的协作工作流。
 
 ## 版本历史
 
 详见 [CHANGELOG.md](CHANGELOG.md)。
-
-- **0.1.0** (2026-06-15): 首个公开发布版本
 
 ## 许可证
 
